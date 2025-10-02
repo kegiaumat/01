@@ -1,21 +1,18 @@
-import os, json, datetime
+import os, json, io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaIoBaseDownload
 
 # Lấy biến môi trường
 sa_json = os.environ["GDRIVE_SA"]
 folder_id = os.environ["GDRIVE_FOLDER_ID"]
 
-# Parse credentials
 creds_info = json.loads(sa_json)
 scopes = ["https://www.googleapis.com/auth/drive"]
-credentials = service_account.Credentials.from_service_account_info(
-    creds_info, scopes=scopes
-)
+credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
 service = build("drive", "v3", credentials=credentials, cache_discovery=False)
 
-# === 1. Kiểm tra có file hello.txt chưa trong folder ===
+# === 1. Tìm file hello.txt trong folder ===
 results = service.files().list(
     q=f"'{folder_id}' in parents and name='hello.txt' and trashed=false",
     fields="files(id, name)"
@@ -23,20 +20,20 @@ results = service.files().list(
 items = results.get("files", [])
 
 if not items:
-    raise Exception("❌ Chưa có file hello.txt trong folder, hãy tạo file rỗng trước!")
+    raise Exception("❌ Không tìm thấy hello.txt trong folder. Hãy tạo file này trước trong Google Drive.")
 
 file_id = items[0]["id"]
+print("📂 Đã tìm thấy file:", items[0]["name"], "(", file_id, ")")
 
-# === 2. Ghi thời gian khởi động vào file local ===
-local_file = "/tmp/hello.txt"
-with open(local_file, "w", encoding="utf-8") as f:
-    f.write("Khởi động lúc: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+# === 2. Download nội dung file về ===
+request = service.files().get_media(fileId=file_id)
+fh = io.BytesIO()
+downloader = MediaIoBaseDownload(fh, request)
 
-# === 3. Upload ghi đè lên Google Drive ===
-media = MediaFileUpload(local_file, mimetype="text/plain", resumable=True)
-updated = service.files().update(
-    fileId=file_id,
-    media_body=media
-).execute()
+done = False
+while not done:
+    status, done = downloader.next_chunk()
 
-print("✅ File hello.txt đã được cập nhật lúc:", datetime.datetime.now())
+content = fh.getvalue().decode("utf-8")
+print("✅ Nội dung file hello.txt là:\n")
+print(content)
